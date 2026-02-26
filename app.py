@@ -1,43 +1,54 @@
- import tkinter as tk
-import random
+from flask import Flask, request, jsonify
+from groq import Groq
+import os
 
-numero_secreto = random.randint(1, 100)
-intentos = 0
+app = Flask(__name__)
+cliente = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-def adivinar():
-    global intentos, numero_secreto
-    
-    intento = int(entrada.get())
-    intentos += 1
-    entrada.delete(0, tk.END)
-    
-    if intento < numero_secreto:
-        mensaje.config(text="¡Muy bajo! Intenta más alto", fg="red")
-    elif intento > numero_secreto:
-        mensaje.config(text="¡Muy alto! Intenta más bajo", fg="red")
-    else:
-        mensaje.config(text="🎉 ¡CORRECTO en " + str(intentos) + " intentos!", fg="green")
+def obtener_respuesta(mensaje):
+    historial = [
+        {
+            "role": "system",
+            "content": (
+                "Eres un vendedor casual y directo de TINT HATS, una tienda de gorras en Mexicali. "
+                "Habla como una persona normal, sin formalismos. Respuestas cortas y al punto. "
+                "Gorras G5 a $700, mayoreo de 3+ a $450. "
+                "Gorras tela sencilla a $450, mayoreo de 3+ a $300. "
+                "Envio gratis en Mexicali, zonas lejanas costo segun distancia. "
+                "Cuando el cliente quiera comprar dile que te contacte por WhatsApp: 6865864989"
+            )
+        },
+        {"role": "user", "content": mensaje}
+    ]
+    respuesta = cliente.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=historial
+    )
+    return respuesta.choices[0].message.content
 
-def nuevo_juego():
-    global numero_secreto, intentos
-    numero_secreto = random.randint(1, 100)
-    intentos = 0
-    mensaje.config(text="¡Adivina el número!", fg="white")
+@app.route("/", methods=["GET"])
+def home():
+    return "TINT HATS Chatbot corriendo!"
 
-ventana = tk.Tk()
-ventana.title("Adivina el número")
-ventana.geometry("400x300")
-ventana.config(bg="black")
+@app.route("/webhook", methods=["GET"])
+def verificar():
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    if token == "tinthats2024":
+        return challenge
+    return "Token invalido", 403
 
-tk.Label(ventana, text="Adivina el número (1-100)", font=("Arial", 16), bg="black", fg="white").pack(pady=20)
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.json
+    try:
+        mensaje = data["entry"][0]["messaging"][0]["message"]["text"]
+        respuesta = obtener_respuesta(mensaje)
+        print(f"Mensaje: {mensaje} | Respuesta: {respuesta}")
+    except Exception as e:
+        print(f"Error: {e}")
+    return jsonify({"status": "ok"})
 
-entrada = tk.Entry(ventana, font=("Arial", 18))
-entrada.pack(pady=10)
-
-tk.Button(ventana, text="Adivinar", font=("Arial", 14), command=adivinar).pack(pady=5)
-tk.Button(ventana, text="Nuevo juego", font=("Arial", 14), command=nuevo_juego).pack(pady=5)
-
-mensaje = tk.Label(ventana, text="¡Adivina el número!", font=("Arial", 14), bg="black", fg="white")
-mensaje.pack(pady=20)
-
-ventana.mainloop()
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
